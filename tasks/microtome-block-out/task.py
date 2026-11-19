@@ -35,8 +35,10 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from dataclasses import replace  # noqa: E402
+
 import numpy as np  # noqa: E402
-from partkit import Hinge, Slider, finger_points, on_reset, on_step, part  # noqa: E402
+from partkit import Hinge, PartState, Slider, _np, on_reset, on_step, part  # noqa: E402
 from yam_arena.task_file import TABLE_TOP  # noqa: E402
 
 SCENE = "station"
@@ -53,6 +55,9 @@ WAX = (0.93, 0.86, 0.62)
 TRAY_C = (0.45, 0.47, 0.50)
 
 
+XS = 0.080    # the whole instrument and tray stand this much further from the arm bases than the numbers below: at
+#               reset the right arm's ready pose then clears the housing (written at x 300 mm it held the fingertips);
+#               every part's origin is moved by XS after it is built, and the scorer works in the moved (world) frame
 YS = -0.040   # the whole layout below is written 4 cm further +y than it stands (kept for readable numbers): every shape,
 #               pivot and origin is moved by YS, and the scorer works in the moved (world) frame
 
@@ -212,13 +217,22 @@ CARRIAGE = Slider("carriage", rest=(0.0, 0.0, 0.0), axis="Z", lower=-(STROKE - D
                         _c0 - CASS_H / 2, DARK, _h),                                            # fixed lower jaw
                   ))
 _rp = np.array([CLAMP_X, 0.050 + YS, TOP + _lip_z + 0.012])          # the rocker's pivot, above the clamp body
+LEVER_OUT = 0.040                    # the lever's push bar stands this far in front of the rocker (was in line with it)
+LEVER_DOWN = 0.0895                  # and reaches this far below the lip (was 30 mm): its foot 100 mm above the bench
+LEVER_W = 0.024                      # the push bar is this wide across (toward the robot; was 8 mm), a pad for fingertips
 CLAMP = Hinge("clamp", pivot=tuple(float(v) for v in (_rp - _h)), axis="X", parent="carriage",
               boxes=(B(CLAMP_X - 0.015, CLAMP_X + 0.015, 0.045, _jaw_y1, _lip_z + 0.0005, _lip_z + 0.008, DARK, _h),
                      B(CLAMP_X - 0.015, CLAMP_X + 0.015, Y_CASS0 + CASS_T, _jaw_y1, _lip_z - 0.003, _lip_z + 0.0005,
                        DARK, _h),                                                                # lip over the front
                      B(CLAMP_X - 0.030, CLAMP_X - 0.015, 0.045, 0.055, _lip_z, _lip_z + 0.014, DARK, _h),
                      B(CLAMP_X - 0.068, CLAMP_X - 0.030, 0.045, 0.055, _lip_z + 0.006, _lip_z + 0.014, DARK, _h),
-                     B(CLAMP_X - 0.068, CLAMP_X - 0.060, 0.045, 0.055, _lip_z - 0.030, _lip_z + 0.014, DARK, _h)),
+                     # the lever: an arm forward from the rocker's side, then a bar down to its push end. It stands
+                     # LEVER_OUT in front of the rocker and reaches LEVER_DOWN below the lip, longer and lower than the
+                     # instrument's, so that a robot gripper (about 70 mm across) fits behind it clear of the housing;
+                     # it turns the same rocker on the same pivot against the same spring
+                     B(CLAMP_X - 0.068, CLAMP_X - 0.060, 0.055, 0.055 + LEVER_OUT, _lip_z + 0.006, _lip_z + 0.014, DARK, _h),
+                     B(CLAMP_X - 0.060 - LEVER_W, CLAMP_X - 0.060, 0.047 + LEVER_OUT, 0.055 + LEVER_OUT,
+                       _lip_z - LEVER_DOWN, _lip_z + 0.006, DARK, _h)),
               lower=-0.02, upper=0.45, stiffness=1.2, damping=0.02, target=-0.06, mass=0.02)
 HEAD = part("head", pos=_f(HEAD_O), boxes=[B(0.405, 0.413, Y_FRONT, 0.012, 0.050, 0.240, STEEL, _h),
                                               B(0.487, 0.495, Y_FRONT, 0.012, 0.050, 0.240, STEEL, _h)],
@@ -245,6 +259,12 @@ TRAY_PART = part("tray", pos=_f(_t), mass=0.15, color=TRAY_C, friction=0.8, boxe
       TRAY_C, _t),
 ])
 
+def _moved(p):
+    """The part with its origin moved by XS (its shapes, pivots and slider rests are in its own frame)."""
+    return replace(p, pos=(p.pos[0] + XS, p.pos[1], p.pos[2]))
+
+
+HOUSING, HANDWHEEL, HEAD, CASSETTE, TRAY_PART = (_moved(p) for p in (HOUSING, HANDWHEEL, HEAD, CASSETTE, TRAY_PART))
 OBJECTS = [HOUSING, HANDWHEEL, HEAD, CASSETTE, TRAY_PART]
 
 # -- scoring -----------------------------------------------------------------------------------------------------------
@@ -253,13 +273,18 @@ COVER_MIN = math.radians(175.0)      # the guard at (or within 15 degrees of) it
 OUT_MIN = 0.015                      # the cassette 15 mm or more from its clamped place
 STILL_STEPS = 20                     # 1 s at 20 Hz
 STILL_MM = 1.0
+CLEAR = 0.03                         # "released": every gripper point at least this far from the cassette's surface
+PAD_HALF_W = 0.034                   # the finger pads are 68 mm wide
+PAD_THICK = 0.008
+PAD_BACK = 0.040                     # the pads and fingers, from the pad tips this far back toward the palm
+PALM_BACK = 0.027                    # the palm's face is this far behind the tool point
 _STATE: dict = {}
 
 
 @on_reset
 def _reset_state(environment=None) -> None:
     _STATE.clear()
-    _STATE.update(step=0, released=False, violation="", hist=[], zone_hit=False)
+    _STATE.update(step=0, scored=-1, last=(0.0, False), released=False, violation="", hist=[], zone_hit=False)
 
 
 _reset_state()
@@ -285,14 +310,16 @@ def guarded(objects) -> bool:
 
 def cassette_out(objects) -> bool:
     c = objects["cassette"]
-    clamped = np.array([CLAMP_X, CASS_START[1] + YS, TOP + CASS_START[2] + objects["head"].sliders.get("carriage", 0.0)])
+    clamped = np.array([CLAMP_X + XS, CASS_START[1] + YS, TOP + CASS_START[2] + objects["head"].sliders.get("carriage", 0.0)])
     return float(np.linalg.norm(np.asarray(c.pos) - clamped)) >= OUT_MIN
 
 
 def in_tray(objects) -> bool:
-    p = np.asarray(objects["cassette"].pos)
-    return (abs(p[0] - TRAY[0]) <= TRAY_IN[0] / 2 and abs(p[1] - TRAY[1] - YS) <= TRAY_IN[1] / 2
-            and p[2] <= TOP + TRAY_FLOOR + 0.035)
+    """The cassette's centre inside the tray's walls and below 35 mm over its floor, in the tray's CURRENT frame: the
+    tray is loose, so this follows it wherever it has been pushed or turned (revision 3; before, the test used the
+    tray's starting position)."""
+    q = objects["tray"].to_local(objects["cassette"].pos)
+    return bool(abs(q[0]) <= TRAY_IN[0] / 2 and abs(q[1]) <= TRAY_IN[1] / 2 and q[2] <= TRAY_FLOOR + 0.035)
 
 
 def in_zone(point, carriage: float) -> bool:
@@ -301,7 +328,7 @@ def in_zone(point, carriage: float) -> bool:
     itself, which a hand taking it out must reach)."""
     x, y, z = point
     cass_low = CASS_Z_TOP - DROP0 + carriage - CASS_H / 2
-    return (CLAMP_X - 0.040 <= x <= CLAMP_X + 0.040 and 0.012 <= y - YS <= EDGE_Y + 0.010
+    return (CLAMP_X - 0.040 <= x - XS <= CLAMP_X + 0.040 and 0.012 <= y - YS <= EDGE_Y + 0.010
             and EDGE_Z - 0.005 <= z - TOP <= cass_low + CASS_H)
 
 
@@ -313,38 +340,98 @@ def levels(objects) -> tuple:
     return bool(lk), bool(gd), bool(out), bool(tray)
 
 
+def gripper_points(environment) -> list:
+    """Sample points (world, relative to the env origin) over both grippers: each finger with its pad, from the pad
+    tips 40 mm back, and the palm's face. Used for the specimen zone and for "released"."""
+    from yam_arena.constants import PAD_TIP_PAST_TCP, TCP_OFFSET  # noqa: PLC0415
+
+    base = environment.unwrapped
+    origin = _np(base.scene.env_origins[0])
+    pts = []
+    for arm in ("left_robot", "right_robot"):
+        robot = base.scene[arm]
+        pose = _np(robot.data.body_link_pose_w)[0][list(robot.body_names).index("gripper")]
+        jp, jn = _np(robot.data.joint_pos)[0], list(robot.joint_names)
+        half_gap = max(abs(jp[jn.index(j)]) for j in ("joint7", "joint8") if j in jn)
+        r = PartState(pos=pose[:3], quat_xyzw=pose[3:7], lin_vel=np.zeros(3), ang_vel=np.zeros(3), low=np.zeros(3),
+                      high=np.zeros(3)).rotation()
+        tcp = pose[:3] + r @ np.array(TCP_OFFSET) - origin
+        for along in np.linspace(PAD_TIP_PAST_TCP - PAD_BACK, PAD_TIP_PAST_TCP, 6):
+            for across in np.linspace(-PAD_HALF_W, PAD_HALF_W, 7):
+                for side in (1.0, -1.0):
+                    for t in (0.0, PAD_THICK / 2, PAD_THICK):
+                        pts.append(tcp + r @ np.array([side * (half_gap + t), across, along]))
+        for a in np.linspace(-0.030, 0.030, 5):
+            for b in np.linspace(-PAD_HALF_W, PAD_HALF_W, 5):
+                pts.append(tcp + r @ np.array([a, b, -PALM_BACK]))
+    return pts
+
+
+_CASS_LO = np.array([-CASS_W / 2, -CASS_T / 2, -CASS_H / 2])           # the cassette with its block, in its own frame
+_CASS_HI = np.array([CASS_W / 2, CASS_T / 2 + BLOCK_T, CASS_H / 2])
+
+
+def surface_gap(cassette, point) -> float:
+    """Distance from a point to the cassette's surface (its box with the block on its face); 0 inside."""
+    q = cassette.to_local(point)
+    return float(np.linalg.norm(np.maximum(np.maximum(_CASS_LO - q, q - _CASS_HI), 0.0)))
+
+
+def _pose_points(objects) -> np.ndarray:
+    """Points fixed in every loose or moving part (the cassette at its corners' reach, the tray at its walls, the
+    handle's knob, the guard's tip and the carriage): they stand still only if every whole pose does."""
+    c, t = objects["cassette"], objects["tray"]
+    return np.concatenate([c.pos, c.to_world((CASS_W / 2, 0.0, 0.0)), c.to_world((0.0, 0.0, CASS_H / 2)),
+                           t.pos, t.to_world((TRAY_IN[0] / 2, 0.0, 0.0)), t.to_world((0.0, TRAY_IN[1] / 2, 0.0)),
+                           [0.085 * objects["handwheel"].hinges.get("wheel", 0.0),
+                            GUARD_L * objects["microtome"].hinges.get("guard", 0.0),
+                            objects["head"].sliders.get("carriage", 0.0)]])
+
+
 @on_step
 def _step(environment) -> None:
     """Gripper checks need the robot, which score() does not see: run them here every control step."""
     from partkit import _part_state   # noqa: PLC0415
 
     _STATE["step"] += 1
-    pts = finger_points(environment)
+    pts = gripper_points(environment)
     objs = {s.name: _part_state(environment, s) for s in OBJECTS}
     carriage = objs["head"].sliders.get("carriage", 0.0)
     safe = locked(objs) and guarded(objs)
     if not safe and any(in_zone(p, carriage) for p in pts):
         _STATE["zone_hit"] = True
         _STATE["violation"] = _STATE["violation"] or "gripper between the clamp and the knife while unsafe"
-    c = np.asarray(objs["cassette"].pos)
-    _STATE["released"] = all(np.linalg.norm(np.asarray(p) - c) > 0.03 for p in pts)
+    _STATE["released"] = all(surface_gap(objs["cassette"], p) >= CLEAR for p in pts)
 
 
 def _update(objects) -> tuple[float, bool]:
+    # success() and score() both run every control step; evaluate each step once, so the window is 20 steps (1 s)
+    if _STATE["scored"] == _STATE["step"]:
+        return _STATE["last"]
+    _STATE["scored"] = _STATE["step"]
+    _STATE["last"] = result = _evaluate(objects)
+    return result
+
+
+def _evaluate(objects) -> tuple[float, bool]:
     c = np.asarray(objects["cassette"].pos)
     if c[2] < TOP - 0.02:
         _STATE["violation"] = _STATE["violation"] or "cassette off the bench"
     hist = _STATE["hist"]
-    hist.append(c.copy())
+    hist.append((_pose_points(objects), bool(_STATE["released"])))   # release is judged over the whole second too
     del hist[:-STILL_STEPS]
     if cassette_out(objects) and not (locked(objects) and guarded(objects)):
         _STATE["violation"] = _STATE["violation"] or "block out of the clamp while the wheel was free or the edge bare"
     if _STATE["violation"]:
         return 0.0, False
     lk, gd, out, tray = levels(objects)
+    # the cassette's levels count only once the grippers have let go of it (review rule 6): a cassette in the hand is
+    # not yet out; the lock and the guard stay put by themselves, so they need no such check
+    out, tray = out and _STATE["released"], tray and _STATE["released"]
     s = 0.25 * sum((lk, gd, out, tray))
-    still = len(hist) == STILL_STEPS and max(np.linalg.norm(h - hist[-1]) for h in hist) <= STILL_MM / 1000
-    done = tray and _STATE["released"] and still
+    still = (len(hist) == STILL_STEPS and all(r for _, r in hist)
+             and max(float(np.abs(h - hist[-1][0]).max()) for h, _ in hist) <= STILL_MM / 1000)
+    done = tray and still
     if tray and not done:
         s = 0.75
     return s, done
@@ -356,7 +443,7 @@ def success(objects) -> bool:
 
 def distance(objects) -> float:
     c = np.asarray(objects["cassette"].pos)
-    return float(np.linalg.norm(c[:2] - np.array([TRAY[0], TRAY[1] + YS])))
+    return float(np.linalg.norm(c[:2] - np.asarray(objects["tray"].pos)[:2]))
 
 
 def score(objects) -> float:
