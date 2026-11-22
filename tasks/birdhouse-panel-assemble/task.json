@@ -1,0 +1,20 @@
+{
+  "title": "Assemble a seven-panel wooden birdhouse with both roof panels fitted across the gables",
+  "category": "Societal relatability",
+  "keywords": [
+    "birdhouse",
+    "plywood",
+    "multi-part assembly",
+    "tab-and-slot",
+    "pitched roof"
+  ],
+  "instruction": "Assemble the wooden birdhouse with all four walls and both roof panels fully fitted to its base, and leave it standing freely.",
+  "context": "Building a wooden birdhouse is a recognizable family craft. This full-size seven-panel kit tests closing a three-dimensional enclosure: each roof must engage both previously assembled gables, beyond making an open slotted partition.",
+  "setup": "Full-size authored plywood kit; fabrication SVGs supplied. Loose 190 x 190 x 18 mm base at (280,0) mm between 10 mm-high bench locators with 1 mm lateral clearance; unattached and vertically removable. Side walls in presentation racks at (140,+/-320) mm; front gable at (360,370) mm; shoulders 14 mm above table. Back gable at (390,-300), shoulder 75 mm high, rotated 90 degrees from its assembled orientation, on a raised shelf. Two 248 x 113 x 6 mm roofs at (490,+/-530,170) mm, tilted 45 degrees. Side walls 136 x 107 mm plus 12 mm tapered tabs; 144 mm-wide gables rise 182 mm from shoulders and carry roof-retention tabs. Front entrance 42 mm. Plywood density 600 kg/m3: base 377 g, sides 54 g each, front 73 g, back 78 g, roofs 100 g each. All parts unattached. Exact joint and support geometry in task.py and fabrication/dimensions.json.",
+  "scoring": "Current end state only, panels counted only when released with all fingertips at least 30 mm clear. Seated = within 3 mm and 2 degrees of assembled pose relative to actual base. 0.25: both side walls seated; 0.5: all four walls seated; 0.75: all four walls and both roofs seated and released but stillness incomplete; 1.0: base bottom within 1 mm of tabletop and base tilt at most 2 degrees, same state held for 1 s, each of four witness points per panel moving at most 1 mm. Otherwise 0. Permanent 0 if any panel falls off the table, base moves over 20 mm, or base tilts beyond 15 degrees. Real checks: ruler, feeler gauge, square, angle gauge and video; inspect tabs through slots.",
+  "run_limit": "2,400 steps (2 minutes at 20 Hz)",
+  "reset_notes": "Separate all seven panels. Lay base on its mark and stand walls and tilted roofs in their original presentation racks. Check slots and tabs for damage. Reset arms to READY, open grippers. No consumed parts.",
+  "fidelity": "Authored full-size plywood panels with real through-slots and bevelled tabs, modelled as closed SDF meshes. Bottom tabs taper from 16 x 6 mm shoulders to 12 x 2 mm tips over 12 mm. Contact and gravity only; no snapping or scripted assembly. Clearance fits: 6 mm panels in 8 mm slots. Density 600 kg/m3 and friction 0.65 are estimates; wood flex, wear and humidity omitted. Fabrication files define the real rig; not an exact commercial-kit replica.",
+  "scores": "Dream-1 run: 0.0; demo: 1.0",
+  "media": "M-KG23UW"
+}
