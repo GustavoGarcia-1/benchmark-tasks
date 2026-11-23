@@ -1,0 +1,20 @@
+{
+  "title": "Transfer chopped vegetables with a folding bamboo board",
+  "category": "Societal relatability",
+  "keywords": [
+    "cooking",
+    "folding board",
+    "pouring",
+    "bimanual",
+    "rigid food"
+  ],
+  "instruction": "Transfer all the chopped carrot pieces from the folding bamboo board into the saucepan without losing any, and leave the board on its preparation rack and both grippers clear.",
+  "context": "Transferring chopped vegetables into a saucepan is an everyday cooking action. Unlike fixed-board scraper transfer (TK-KXZ89H), the folding carrier itself is picked up, controlled and returned. Any successful transfer method is valid.",
+  "setup": "Fixed worktop layout: Joseph Joseph Chop2Pot bamboo board, 260 x 210 x 10 mm, 320 g, two bamboo leaves with silicone hinge, centre (460,0,115) mm above the worktop. Buildable stainless wire rack, 100 x 190 x 110 mm, approximately 500 g including feet and clamps, clamped to the worktop, centre (450,0) mm: four 6 mm legs, two longitudinal and three transverse rods. Near board edge overhangs 70 mm. Eight 12 x 12 x 14 mm carrot chunks, 1.8 g each, lie at board x offsets -60 and 30 mm, y offsets -75,-25,25,75 mm. Stainless saucepan, 178 mm outer diameter, 170 mm inner diameter, 95 mm high, 550 g, 130 mm handle, centre (565,0) mm. No liquids or cutting.",
+  "scoring": "0 permanently for food lost onto the worktop or floor, board hinge centre below 25 mm above the worktop, saucepan translation over 20 mm, lift over 10 mm or tilt over 10 degrees. Containment checks all eight oriented box corners against the pan interior (85 mm radius, floor 5 mm, rim 95 mm), with 1 mm contact tolerance. Otherwise, once every fingertip point is over 190 mm from the board hinge centre and over 140 mm from the saucepan base centre: 0.25 for at least four pieces inside; 0.5 for all eight inside; 0.75 for all eight inside and the board returned within 25 mm of its initial horizontal centre and 6 mm of its initial height, body normal within 8 degrees of vertical and leaves within 8 degrees of flat, but not yet stable; 1.0 for that complete state held for 1 second with all tracked points within 1 mm. No fold angle is required for transfer credit.",
+  "run_limit": "1,200 steps (1 minute at 20 Hz)",
+  "reset_notes": "Place eight clean dry carrot chunks at the specified positions, board flat on rack, saucepan empty at its mark. Check rack rigidity, undamaged board hinge and dry worktop. object_jitter=0, fixed layout, no random seeds.",
+  "fidelity": "Full-size bamboo leaves match the cited board dimensions and mass; a passive hinge approximates the silicone seam. Rigid carrot chunks and a hollow saucepan use native contacts. The pan mass and interior are trial specifications; its 4 mm wall and 5 mm base are conservative collision geometry, not literal solid stainless thickness. Hinge torque and friction are estimates. No cutting, liquids, attachments or scripted food motion.",
+  "scores": "Dream-1 run: 0.0; demo: 1.0",
+  "media": "M-YR8ECX"
+}
