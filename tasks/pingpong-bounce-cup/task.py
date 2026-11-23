@@ -41,7 +41,7 @@ _STATE = {}
 
 def reset_state():
     _STATE.clear()
-    _STATE.update(prev=None, bounces=0, invalid=False, released=False, history=deque(maxlen=20), steps=0, contacts=deque(), contact_log=[], board_touch=False, sensor_valid=False, sensor_steps=0, sensor_created=False, sensor_time=-1.0, sensor_samples=0)
+    _STATE.update(prev=None, bounces=0, invalid=False, released=False, handled=False, release_step=None, separated=False, history=deque(maxlen=20), steps=0, contacts=deque(), contact_log=[], board_touch=False, sensor_valid=False, sensor_steps=0, sensor_created=False, sensor_time=-1.0, sensor_samples=0)
 reset_state()
 
 _SENSOR = None
@@ -136,16 +136,32 @@ def inside(pos):
 
 
 def update(pos, vel, clear=True, contacts=()):
-    """20 Hz measured trajectory. Any hand reapproach after release invalidates it."""
+    """20 Hz release/separation protocol; native contacts forbid recontact."""
     p, v = np.asarray(pos,float), np.asarray(vel,float)
     S = _STATE
     S['steps'] += 1
     if p[2] < TOP-.01:
         S['invalid'] = True
-    if S['released'] and not clear:
-        S['invalid'] = True
-    if p[2] > BOARD_TOP+.085 and clear:
+    # A complete 50 ms control interval without robot contact confirms release.
+    # The 1 mm board gap excludes supported handling, rather than waiting for an
+    # arbitrary launch height or requiring impossible clearance at release.
+    had_hand = 'hand' in contacts
+    S['handled'] = S['handled'] or had_hand
+    if (not S['released'] and S['handled'] and not had_hand
+            and p[2]-RADIUS > BOARD_TOP+.001 and not inside(p)):
         S['released'] = True
+        S['release_step'] = S['steps']-1  # beginning of confirming interval
+    if S['released']:
+        if had_hand:
+            S['invalid'] = True
+        if S['separated'] and not clear:
+            S['invalid'] = True
+        if clear:
+            S['separated'] = True
+        # Four 50 ms intervals, including the confirming interval. Recontact is
+        # forbidden throughout; this allowance is only for opening/withdrawal.
+        if S['steps']-S['release_step'] >= 4 and not S['separated']:
+            S['invalid'] = True
     for contact in contacts:
         if S['released']:
             if contact == 'board':
